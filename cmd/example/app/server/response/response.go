@@ -35,19 +35,6 @@ func (r Error) Error() string {
 	return "unknown error"
 }
 
-func (r Error) MarshalJSON() ([]byte, error) {
-	res := Response{
-		Status: InternalError,
-	}
-	if r.Status != "" {
-		res.Status = r.Status
-	}
-	if r.Err != nil {
-		res.Message = r.Err.Error()
-	}
-	return json.Marshal(res)
-}
-
 func SendResponse(w http.ResponseWriter, statusCode int, r *Response) {
 	if r.Status == "" {
 		r.Status = OK
@@ -57,20 +44,24 @@ func SendResponse(w http.ResponseWriter, statusCode int, r *Response) {
 
 func SendError(w http.ResponseWriter, err error) {
 	statusCode := http.StatusInternalServerError
+	res := Response{
+		Status:  InternalError,
+		Message: err.Error(),
+	}
 	var e *Error
-	switch errors.As(err, &e) {
-	case true:
+	if errors.As(err, &e) {
 		if e.StatusCode != 0 {
 			statusCode = e.StatusCode
 		}
-	default:
-		e = &Error{Err: err}
+		if e.Status != "" {
+			res.Status = e.Status
+		}
 	}
-	sendJSON(w, statusCode, e)
+	sendJSON(w, statusCode, &res)
 }
 
-func sendJSON(w http.ResponseWriter, statusCode int, v interface{}) {
+func sendJSON(w http.ResponseWriter, statusCode int, r *Response) {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(r)
 }

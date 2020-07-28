@@ -45,6 +45,11 @@ func (f SpatioTemporalFilter) Distance() float64 {
 	return float64(f.distance.Angle() * earthRadiusMeters)
 }
 
+// Interval returns time tolerance.
+func (f SpatioTemporalFilter) Interval() time.Duration {
+	return f.interval
+}
+
 // Level returns filter cell level.
 func (f SpatioTemporalFilter) Level() int {
 	return f.level
@@ -129,7 +134,7 @@ func (f SpatioTemporalFilter) match(txn *badger.Txn, cellID s2.CellID, pt s2.Poi
 	minRange := encodeKey(cellID.RangeMin())
 	maxRange := encodeKey(cellID.RangeMax())
 
-	for iter.Seek(minRange); iter.Valid() && bytes.Compare(minRange, maxRange) <= 0; iter.Next() {
+	for iter.Seek(minRange); iter.Valid() && bytes.Compare(iter.Item().Key(), maxRange) <= 0; iter.Next() {
 		cellID := decodeKey(iter.Item().Key())
 		if s2.CompareDistance(pt, cellID.Point(), f.distance) <= 0 {
 			return true

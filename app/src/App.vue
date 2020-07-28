@@ -1,5 +1,6 @@
 <template>
     <div id="map">
+        <div class="floater" v-html="info"></div>
         <l-map
                 ref="map"
                 :zoom.sync="map.zoom"
@@ -32,6 +33,7 @@
     const host = 'http://localhost:8081'
     const urlLocations = `${host}/locations`
     const urlGrid = `${host}/grid`
+    const urlInfo = `${host}/info`
     const locUnique = '#00ff00'
     const locDuplicate = '#ff0000'
 
@@ -69,9 +71,12 @@
                         fillOpacity: 0
                     },
                 },
+                toleranceTTL: '',
+                toleranceDistance: '',
             };
         },
         mounted() {
+            this.fetchInfo()
             this.fetchGrid()
             this.fetchLocations()
             this.timer = setInterval(this.fetchLocations, 500)
@@ -80,6 +85,14 @@
             clearInterval(this.timer)
         },
         methods: {
+            fetchInfo() {
+                axios.get(urlInfo).then((res) => {
+                    const {distance, ttl} = res.data.data || {}
+
+                    this.toleranceDistance = distance
+                    this.toleranceTTL = ttl
+                })
+            },
             fetchGrid() {
                 const bounds = this.$refs.map.mapObject.getBounds()
                 axios.post(urlGrid, {
@@ -115,6 +128,12 @@
                     }
                 })
             }
+        },
+        computed: {
+            info() {
+                return `Distance tolerance: <strong>${this.toleranceDistance}</strong> meters<br />
+                        Time tolerance: <strong>${this.toleranceTTL}</strong>`
+            }
         }
     };
 </script>
@@ -128,5 +147,18 @@
     html, body, #map {
         height: 100%;
         width: 100%;
+    }
+
+    .floater {
+        display: inline-block;
+        position: fixed;
+        top: 0.5em;
+        left: 0.5em;
+        z-index: 10000;
+        background: #fff;
+        padding: 1em;
+        border: 1px solid darkgrey;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        font-size: 1em;
     }
 </style>

@@ -29,6 +29,7 @@ func initRoutes(publicDir string, filter *dedup.SpatioTemporalFilter) chi.Router
 	mux.Mount("/debug", middleware.Profiler())
 
 	// public routes
+	mux.Get("/info", WithSpatioTemporalFilter(filter, handler.Info))
 	mux.Post("/grid", WithSpatioTemporalFilter(filter, handler.MapGrid))
 	mux.Get("/locations", WithSpatioTemporalFilter(filter, handler.IndexedLocations))
 	mux.Post("/locations", WithSpatioTemporalFilter(filter, handler.AddLocation))

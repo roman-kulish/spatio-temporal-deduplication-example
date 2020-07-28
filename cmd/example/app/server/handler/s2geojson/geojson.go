@@ -41,6 +41,11 @@ type Polygon struct {
 	*s2.Loop
 }
 
+// NewPoint returns GeoJSON Polygon instance from the loop.
+func NewPolygon(l *s2.Loop) *Polygon {
+	return &Polygon{l}
+}
+
 func (p Polygon) MarshalJSON() ([]byte, error) {
 	v := p.Vertices()
 	coords := make([][]float64, 0, len(v)+1)
