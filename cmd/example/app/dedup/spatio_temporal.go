@@ -55,27 +55,6 @@ func (f SpatioTemporalFilter) Level() int {
 	return f.level
 }
 
-func (f SpatioTemporalFilter) Grid(ll s2.LatLng) s2.CellUnion {
-
-	/*
-		+---+---+---+ Cell 0 is where the current event LatLng belongs to.
-		| 1 | 2 | 3 | Cell edge length is approximately equals to the distance
-		+---+---+---+ tolerance. If event's LatLng is close to the cell edge,
-		| 4 | 0 | 5 | then earlier event's coordinates can be in the cell 0 or
-		+---+---+---+ one of the neighbour cells. Hence, all 9 cells must be
-		| 6 | 7 | 8 | checked for earlier events. CellID is used as a key prefix.
-		+---+---+---+
-	*/
-
-	cellID := s2.CellIDFromLatLng(ll).Parent(f.level)
-	cells := make([]s2.CellID, 9)
-	cells[0] = cellID
-	for i, cellID := range cellID.AllNeighbors(f.level) {
-		cells[i+1] = cellID
-	}
-	return cells
-}
-
 // IndexedLocations iterates over indexed locations and calls fn with
 // latitude and longitude.
 func (f SpatioTemporalFilter) IndexedLocations(fn func(lat, lng float64) error) error {
@@ -106,11 +85,12 @@ func (f SpatioTemporalFilter) Filter(ev Event) (isUnique bool, err error) {
 
 		// first pass, is the scan for any earlier events.
 		pt := s2.PointFromLatLng(ll)
-		for _, id := range f.Grid(ll) {
-			if isUnique = !f.match(txn, id, pt); !isUnique {
+		for _, id := range f.cells(ll) {
+			if hasMatch := f.match(txn, id, pt); hasMatch {
 				return nil // found match
 			}
 		}
+		isUnique = true
 
 		// second pass, is storing given event in the database index, if no
 		// earlier events found. Entry is created with TTL to satisfy temporal
@@ -119,6 +99,31 @@ func (f SpatioTemporalFilter) Filter(ev Event) (isUnique bool, err error) {
 		return txn.SetEntry(entry.WithTTL(f.interval))
 	})
 	return
+}
+
+// cells returns cells to search for earlier indexed locations.
+func (f SpatioTemporalFilter) cells(ll s2.LatLng) s2.CellUnion {
+	// Cell 0 is where the current event LatLng belongs to. Cell edge length is
+	// approximately equals to the distance tolerance. If event's LatLng is
+	// close to the cell edge, then earlier event's coordinates can be in the
+	// cell 0 or one of the neighbour cells. Hence, all 9 cells must be checked
+	// for earlier events. CellID is used as a key prefix.
+	//
+	// +---+---+---+
+	// | 1 | 2 | 3 |
+	// +---+---+---+
+	// | 4 | 0 | 5 |
+	// +---+---+---+
+	// | 6 | 7 | 8 |
+	// +---+---+---+
+
+	cellID := s2.CellIDFromLatLng(ll).Parent(f.level)
+	cells := make([]s2.CellID, 9)
+	cells[0] = cellID
+	for i, cellID := range cellID.AllNeighbors(f.level) {
+		cells[i+1] = cellID
+	}
+	return cells
 }
 
 // match iterates over records with the prefix from cellID and compares distance
