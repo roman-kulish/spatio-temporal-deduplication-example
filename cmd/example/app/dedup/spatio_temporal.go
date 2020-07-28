@@ -122,6 +122,7 @@ func (f SpatioTemporalFilter) Filter(ev Event) (isUnique bool, err error) {
 func (f SpatioTemporalFilter) match(txn *badger.Txn, cellID s2.CellID, pt s2.Point) bool {
 	opts := badger.DefaultIteratorOptions
 	opts.PrefetchValues = false
+	opts.Prefix = []byte{SpatioTemporalKey}
 	iter := txn.NewIterator(opts)
 	defer iter.Close()
 
