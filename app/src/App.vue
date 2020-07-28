@@ -2,36 +2,38 @@
     <div id="map">
         <l-map
                 ref="map"
-                :zoom.sync="zoom"
-                :center="center"
-                :options="mapOptions"
+                :zoom.sync="map.zoom"
+                :center="map.center"
+                :options="map.options"
                 @click="addLocation"
                 @update:zoom="fetchGrid"
                 @update:bounds="fetchGrid"
         >
             <l-tile-layer
-                    :url="url"
-                    :attribution="attribution"
+                    :url="map.url"
+                    :attribution="map.attribution"
             />
-            <l-marker v-for="(latlng, index) in locations" :lat-lng="latlng" :key="index" ></l-marker>
+            <l-marker v-for="(ll, index) in markers" :lat-lng="ll" :key="index"></l-marker>
             <l-circle
-                    :lat-lng="circle.center"
-                    :radius="circle.radius"
-                    :color="circle.color"
+                    :lat-lng="distance.center"
+                    :radius="distance.radius"
+                    :color="distance.color"
             />
-            <l-geo-json :geojson="grid" :options="gridOptions"></l-geo-json>
+            <l-geo-json :geojson="grid.geoJSON" :options="grid.options"></l-geo-json>
         </l-map>
     </div>
 </template>
 
 <script>
     import {latLng} from 'leaflet';
-    import {LGeoJson, LMap, LTileLayer, LMarker, LCircle} from 'vue2-leaflet';
+    import {LCircle, LGeoJson, LMap, LMarker, LTileLayer} from 'vue2-leaflet';
     import axios from 'axios'
 
     const host = 'http://localhost:8081'
     const urlLocations = `${host}/locations`
     const urlGrid = `${host}/grid`
+    const locUnique = '#00ff00'
+    const locDuplicate = '#ff0000'
 
     export default {
         name: "App",
@@ -44,32 +46,35 @@
         },
         data() {
             return {
-                center: latLng(-33.862451199999995, 151.207752),
-                url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                subdomains: 'abcd',
-                zoom: 19,
-                mapOptions: {
-                    zoomSnap: 0.5,
-                    zoomControl: false,
+                map: {
+                    center: latLng(-33.862451199999995, 151.207752),
+                    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    subdomains: 'abcd',
+                    zoom: 19,
+                    options: {
+                        zoomSnap: 0.5,
+                        zoomControl: false,
+                    },
                 },
                 timer: null,
-                locations: [],
-                grid: null,
-                gridOptions: {
-                    color: "#000",
-                    weight: 1,
-                    opacity: 0.2,
-                    fillOpacity: 0
+                markers: [],
+                distance: {},
+                grid: {
+                    geoJSON: null,
+                    options: {
+                        color: "#000",
+                        weight: 1,
+                        opacity: 0.2,
+                        fillOpacity: 0
+                    },
                 },
-                circle: {}
             };
         },
         mounted() {
-            this.$refs.map.mapObject.zoomControl = false
             this.fetchGrid()
             this.fetchLocations()
-            this.timer = setInterval(this.fetchLocations, 1000)
+            this.timer = setInterval(this.fetchLocations, 500)
         },
         beforeDestroy() {
             clearInterval(this.timer)
@@ -81,17 +86,16 @@
                     hi: bounds.getSouthWest(),
                     lo: bounds.getNorthEast()
                 }).then((res) => {
-                    this.grid = res.data.data || {}
+                    this.grid.geoJSON = res.data.data || {}
                 })
             },
             fetchLocations() {
                 axios.get(urlLocations).then((res) => {
                     const features = res.data.data.features || []
-                    this.locations = features.map((feature) => {
+                    this.markers = features.map((feature) => {
                         const {
-                            geometry: { coordinates }
+                            geometry: {coordinates}
                         } = feature
-
                         return latLng(coordinates[1], coordinates[0])
                     })
                 })
@@ -101,14 +105,13 @@
                     ...ev.latlng
                 }).then((res) => {
                     const {
-                        geometry: { coordinates },
+                        geometry: {coordinates},
                         properties
                     } = res.data.data || {}
-
-                    this.circle = {
+                    this.distance = {
                         center: latLng(coordinates[1], coordinates[0]),
                         radius: properties.radius,
-                        color: properties.unique ? '#00ff00' : '#ff0000'
+                        color: properties.unique ? locUnique : locDuplicate
                     }
                 })
             }

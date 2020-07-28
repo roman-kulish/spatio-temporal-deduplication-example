@@ -21,7 +21,6 @@ func initRoutes(publicDir string, filter *dedup.SpatioTemporalFilter) chi.Router
 			AllowedHeaders: []string{"Accept", "Content-Type"},
 			MaxAge:         300,
 		}),
-		// middleware.Logger,
 	)
 
 	// internal routes
@@ -33,7 +32,7 @@ func initRoutes(publicDir string, filter *dedup.SpatioTemporalFilter) chi.Router
 	mux.Post("/grid", WithSpatioTemporalFilter(filter, handler.MapGrid))
 	mux.Get("/locations", WithSpatioTemporalFilter(filter, handler.IndexedLocations))
 	mux.Post("/locations", WithSpatioTemporalFilter(filter, handler.AddLocation))
-	mux.Method(http.MethodGet, "/", http.FileServer(http.Dir(publicDir)))
+	mux.Method(http.MethodGet, "/*", http.FileServer(http.Dir(publicDir)))
 
 	return mux
 }
