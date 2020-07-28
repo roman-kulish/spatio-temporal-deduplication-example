@@ -21,7 +21,7 @@ func initRoutes(publicDir string, filter *dedup.SpatioTemporalFilter) chi.Router
 			AllowedHeaders: []string{"Accept", "Content-Type"},
 			MaxAge:         300,
 		}),
-		middleware.Logger,
+		// middleware.Logger,
 	)
 
 	// internal routes

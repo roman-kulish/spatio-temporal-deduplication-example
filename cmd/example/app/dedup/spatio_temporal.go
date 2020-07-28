@@ -1,6 +1,7 @@
 package dedup
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,7 +17,7 @@ const earthRadiusMeters = 6371010.0
 // SpatioTemporalFilter implements spatio-temporal deduplication filter.
 type SpatioTemporalFilter struct {
 	db       *badger.DB
-	distance s1.Angle
+	distance s1.ChordAngle
 	interval time.Duration
 	level    int
 }
@@ -32,26 +33,16 @@ func NewSpatioTemporalFilter(db *badger.DB, distance float64, interval time.Dura
 	rad := distance / earthRadiusMeters
 	f := SpatioTemporalFilter{
 		db:       db,
-		distance: s1.Angle(rad),
+		distance: s1.ChordAngleFromAngle(s1.Angle(rad)),
 		interval: interval,
-		level:    s2.AvgEdgeMetric.MinLevel(rad),
+		level:    s2.MinEdgeMetric.ClosestLevel(rad),
 	}
 	return &f, nil
 }
 
-// Distance returns distance tolerance as s1.Angle (radians).
-func (f SpatioTemporalFilter) Distance() s1.Angle {
-	return f.distance
-}
-
-// DistanceMeters returns distance tolerance in meters.
-func (f SpatioTemporalFilter) DistanceMeters() float64 {
-	return float64(f.distance * earthRadiusMeters)
-}
-
-// Interval returns time tolerance.
-func (f SpatioTemporalFilter) Interval() time.Duration {
-	return f.interval
+// Distance returns distance tolerance in meters.
+func (f SpatioTemporalFilter) Distance() float64 {
+	return float64(f.distance.Angle() * earthRadiusMeters)
 }
 
 // Level returns filter cell level.
@@ -60,6 +51,17 @@ func (f SpatioTemporalFilter) Level() int {
 }
 
 func (f SpatioTemporalFilter) Grid(ll s2.LatLng) s2.CellUnion {
+
+	/*
+		+---+---+---+ Cell 0 is where the current event LatLng belongs to.
+		| 1 | 2 | 3 | Cell edge length is approximately equals to the distance
+		+---+---+---+ tolerance. If event's LatLng is close to the cell edge,
+		| 4 | 0 | 5 | then earlier event's coordinates can be in the cell 0 or
+		+---+---+---+ one of the neighbour cells. Hence, all 9 cells must be
+		| 6 | 7 | 8 | checked for earlier events. CellID is used as a key prefix.
+		+---+---+---+
+	*/
+
 	cellID := s2.CellIDFromLatLng(ll).Parent(f.level)
 	cells := make([]s2.CellID, 9)
 	cells[0] = cellID
@@ -80,8 +82,9 @@ func (f SpatioTemporalFilter) IndexedLocations(fn func(lat, lng float64) error) 
 		defer iter.Close()
 
 		for iter.Rewind(); iter.Valid(); iter.Next() {
-			lat, lng := decodeKey(append([]byte(nil), iter.Item().Key()...))
-			if err := fn(lat, lng); err != nil {
+			cellID := decodeKey(append([]byte(nil), iter.Item().Key()...))
+			ll := cellID.LatLng()
+			if err := fn(ll.Lat.Degrees(), ll.Lng.Degrees()); err != nil {
 				return err
 			}
 		}
@@ -97,9 +100,9 @@ func (f SpatioTemporalFilter) Filter(ev Event) (isUnique bool, err error) {
 		}
 
 		// first pass, is the scan for any earlier events.
-		prefixes := makePrefixes(f.Grid(ll))
-		for i := range prefixes {
-			if isUnique = !match(txn, prefixes[i], f.distance, ll); !isUnique {
+		pt := s2.PointFromLatLng(ll)
+		for _, id := range f.Grid(ll) {
+			if isUnique = !f.match(txn, id, pt); !isUnique {
 				return nil // found match
 			}
 		}
@@ -107,86 +110,49 @@ func (f SpatioTemporalFilter) Filter(ev Event) (isUnique bool, err error) {
 		// second pass, is storing given event in the database index, if no
 		// earlier events found. Entry is created with TTL to satisfy temporal
 		// requirement.
-		entry := badger.NewEntry(encodeLatLng(ll), nil)
+		entry := badger.NewEntry(encodeKey(s2.CellIDFromLatLng(ll)), nil)
 		return txn.SetEntry(entry.WithTTL(f.interval))
 	})
 	return
 }
 
-const (
-	s2CellIDLen = 16
-	coordsLen   = 8
-)
-
-// encodeLatLng takes latitude and longitude and encodes them into a key, which is
-// used in the database index.
-// Key format is:
-// - 1 byte, key type;
-// - 8 bytes, s2.CellID, always indexed at the maximum level;
-// - 4 bytes, latitude, in MicroDegrees format (E7);
-// - 4 bytes, longitude, in MicroDegrees format (E7).
-func encodeLatLng(ll s2.LatLng) []byte {
-	cellID := s2.CellIDFromLatLng(ll)
-	buf := make([]byte, keyLen+s2CellIDLen+(coordsLen*2))
-
-	buf[0] = SpatioTemporalKey
-	copy(buf[keyLen:], cellID.ToToken())
-	binary.BigEndian.PutUint32(buf[keyLen+s2CellIDLen:], uint32(ll.Lat.Degrees()*1e7))
-	binary.BigEndian.PutUint32(buf[keyLen+s2CellIDLen+coordsLen:], uint32(ll.Lng.Degrees()*1e7))
-	return buf
-}
-
-// encodeCellID takes s2.CellID and encodes it into a key, which is then can
-// be used for prefix search.
-// Key format is:
-// - 1 byte, key type;
-// - N bytes, s2.CellID, trailing zeros stripped
-func encodeCellID(cellID s2.CellID) []byte {
-	return append([]byte{SpatioTemporalKey}, cellID.ToToken()...)
-}
-
-// decodeKey decodes given slice of bytes (database index key) into s2.LatLng.
-func decodeKey(p []byte) (lat, lng float64) {
-	latE6 := binary.BigEndian.Uint32(p[keyLen+s2CellIDLen:])
-	lngE6 := binary.BigEndian.Uint32(p[keyLen+s2CellIDLen+coordsLen:])
-	return float64(int32(latE6)) / 1e7, float64(int32(lngE6)) / 1e7
-}
-
-// makePrefixes generates a list of prefixes to scan for earlier events, using
-// given coordinates and S2 Cell level.
-func makePrefixes(c []s2.CellID) [][]byte {
-	/*
-		+---+---+---+ Cell 0 is where the current event LatLng belongs to.
-		| 1 | 2 | 3 | Cell edge length is approximately equals to the distance
-		+---+---+---+ tolerance. If event's LatLng is close to the cell edge,
-		| 4 | 0 | 5 | then earlier event's coordinates can be in the cell 0 or
-		+---+---+---+ one of the neighbour cells. Hence, all 9 cells must be
-		| 6 | 7 | 8 | checked for earlier events. CellID is used as a key prefix.
-		+---+---+---+
-	*/
-	cells := make([][]byte, len(c))
-	for i := range c {
-		cells[i] = encodeCellID(c[i])
-	}
-	return cells
-}
-
-// match iterates over records with the given prefix and compares distance
+// match iterates over records with the prefix from cellID and compares distance
 // between given s2.LatLng and coordinates on the index key. If distance is
 // within distance (argument) is returns true.
-func match(txn *badger.Txn, prefix []byte, distance s1.Angle, loc s2.LatLng) bool {
+func (f SpatioTemporalFilter) match(txn *badger.Txn, cellID s2.CellID, pt s2.Point) bool {
 	opts := badger.DefaultIteratorOptions
-	opts.Prefix = prefix
 	opts.PrefetchValues = false
 	iter := txn.NewIterator(opts)
 	defer iter.Close()
 
-	for iter.Rewind(); iter.Valid(); iter.Next() {
-		lat, lng := decodeKey(append([]byte(nil), iter.Item().Key()...))
-		ll := s2.LatLngFromDegrees(lat, lng)
-		if ll.Distance(loc) <= distance {
+	minRange := encodeKey(cellID.RangeMin())
+	maxRange := encodeKey(cellID.RangeMax())
+
+	for iter.Seek(minRange); iter.Valid() && bytes.Compare(minRange, maxRange) <= 0; iter.Next() {
+		cellID := decodeKey(iter.Item().Key())
+		if s2.CompareDistance(pt, cellID.Point(), f.distance) <= 0 {
 			return true
 		}
 	}
 	return false
+}
+
+const s2CellIDLen = 8
+
+// encodeKey takes latitude and longitude and encodes them into a key, which is
+// used in the database index.
+// Key format is:
+// - 1 byte, key type;
+// - 8 bytes, s2.CellID, always indexed at the maximum level;
+func encodeKey(id s2.CellID) []byte {
+	buf := make([]byte, keyLen+s2CellIDLen)
+	buf[0] = SpatioTemporalKey
+	binary.BigEndian.PutUint64(buf[keyLen:], uint64(id))
+	return buf
+}
+
+// decodeKey decodes given slice of bytes (database index key) into s2.LatLng.
+func decodeKey(p []byte) s2.CellID {
+	id := binary.BigEndian.Uint64(p[keyLen:])
+	return s2.CellID(id)
 }

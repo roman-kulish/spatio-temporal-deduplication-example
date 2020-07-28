@@ -14,7 +14,7 @@
                     :attribution="attribution"
             />
             <l-marker v-for="(latlng, index) in locations" :lat-lng="latlng" :key="index" ></l-marker>
-            <l-circle-marker
+            <l-circle
                     :lat-lng="circle.center"
                     :radius="circle.radius"
                     :color="circle.color"
@@ -26,7 +26,7 @@
 
 <script>
     import {latLng} from 'leaflet';
-    import {LGeoJson, LMap, LTileLayer, LMarker, LCircleMarker} from 'vue2-leaflet';
+    import {LGeoJson, LMap, LTileLayer, LMarker, LCircle} from 'vue2-leaflet';
     import axios from 'axios'
 
     const host = 'http://localhost:8081'
@@ -40,7 +40,7 @@
             LTileLayer,
             LGeoJson,
             LMarker,
-            LCircleMarker
+            LCircle
         },
         data() {
             return {
@@ -82,7 +82,6 @@
                     lo: bounds.getNorthEast()
                 }).then((res) => {
                     this.grid = res.data.data || {}
-                    console.log(res.data.data)
                 })
             },
             fetchLocations() {

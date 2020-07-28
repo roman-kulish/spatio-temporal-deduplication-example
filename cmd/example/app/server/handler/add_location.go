@@ -29,7 +29,7 @@ func AddLocation(filter *dedup.SpatioTemporalFilter, w http.ResponseWriter, r *h
 	response.SendResponse(w, http.StatusOK, &response.Response{Data: makePoint(ev.Lat, ev.Lng, map[string]interface{}{
 		"type":   "location",
 		"unique": isUnique,
-		"radius": filter.DistanceMeters(),
+		"radius": filter.Distance(),
 	})})
 	return nil
 }
