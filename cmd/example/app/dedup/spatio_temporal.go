@@ -164,12 +164,14 @@ func (f *SpatioTemporalFilter) match(txn *badger.Txn, cellID s2.CellID, pt s2.Po
 	maxRange := encodePrefix(cellID.RangeMax())
 
 	for iter.Seek(minRange); iter.Valid() && bytes.Compare(iter.Item().Key(), maxRange) <= 0; iter.Next() {
-		cellID, t := decodeKey(iter.Item().Key())
+		key := iter.Item().Key()
+		cellID, t := decodeKey(key)
 
 		// check if location has expired.
 		f.mu.RLock()
 		if f.watermark.Add(-f.interval).After(t) {
 			f.mu.RUnlock()
+			_ = txn.Delete(key) // delete expired location.
 			continue
 		}
 		f.mu.RUnlock()
