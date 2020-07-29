@@ -1,4 +1,5 @@
 import Vue from 'vue'
+import Notifications from 'vue-notification'
 import App from './App.vue'
 import "leaflet/dist/leaflet.css";
 import L from "leaflet"
@@ -15,7 +16,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: iconShadow
 });
 
-Vue.config.productionTip = false
+Vue.config.productionTip =
+Vue.use(Notifications)
 
 new Vue({
   render: h => h(App),

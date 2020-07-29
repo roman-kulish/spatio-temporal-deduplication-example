@@ -21,7 +21,9 @@
                     :color="distance.color"
             />
             <l-geo-json :geojson="grid.geoJSON" :options="grid.options"></l-geo-json>
+            <l-geo-json :geojson="cells.geoJSON" :options="cells.options"></l-geo-json>
         </l-map>
+        <notifications position="top right" group="info"/>
     </div>
 </template>
 
@@ -71,6 +73,15 @@
                         fillOpacity: 0
                     },
                 },
+                cells: {
+                    geoJSON: null,
+                    options: {
+                        color: "#4e82de",
+                        weight: 2,
+                        opacity: 0.8,
+                        fillOpacity: 0
+                    },
+                },
                 toleranceTTL: '',
                 toleranceDistance: '',
             };
@@ -78,11 +89,6 @@
         mounted() {
             this.fetchInfo()
             this.fetchGrid()
-            this.fetchLocations()
-            this.timer = setInterval(this.fetchLocations, 500)
-        },
-        beforeDestroy() {
-            clearInterval(this.timer)
         },
         methods: {
             fetchInfo() {
@@ -115,18 +121,38 @@
             },
             addLocation(ev) {
                 axios.post(urlLocations, {
-                    ...ev.latlng
+                    ...ev.latlng,
+                    time: new Date()
                 }).then((res) => {
-                    const {
-                        geometry: {coordinates},
-                        properties
-                    } = res.data.data || {}
-                    this.distance = {
-                        center: latLng(coordinates[1], coordinates[0]),
-                        radius: properties.radius,
-                        color: properties.unique ? locUnique : locDuplicate
-                    }
-                })
+                    const features = res.data.data.features || []
+
+                    features.forEach((feature) => {
+                        const {
+                            geometry: {type, coordinates},
+                            properties
+                        } = feature
+
+                        switch (type) {
+                            case "Point":
+                                this.distance = {
+                                    center: latLng(coordinates[1], coordinates[0]),
+                                    radius: properties.radius,
+                                    color: properties.unique ? locUnique : locDuplicate
+                                }
+                                this.$notify({
+                                    group: 'info',
+                                    text: (properties.unique ? 'New location added' : 'Duplicate location detected'),
+                                    type: (properties.unique ? 'info' : 'error'),
+                                    duration: 3000,
+                                    speed: 500
+                                })
+                                break
+                            case "MultiPolygon":
+                                this.cells.geoJSON = feature
+                                break
+                        }
+                    })
+                }).then(() => this.fetchLocations())
             }
         },
         computed: {
@@ -142,6 +168,8 @@
     body {
         padding: 0;
         margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        font-size: 1em;
     }
 
     html, body, #map {
@@ -158,7 +186,5 @@
         background: #fff;
         padding: 1em;
         border: 1px solid darkgrey;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-        font-size: 1em;
     }
 </style>
