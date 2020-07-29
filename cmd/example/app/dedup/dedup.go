@@ -1,5 +1,7 @@
 package dedup
 
+import "time"
+
 const (
 	SpatioTemporalKey byte = 0x01
 
@@ -14,6 +16,7 @@ type Filter interface {
 
 // Event is a demo event type.
 type Event struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
+	Time time.Time `json:"time"`
+	Lat  float64   `json:"lat"`
+	Lng  float64   `json:"lng"`
 }
